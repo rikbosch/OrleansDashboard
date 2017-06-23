@@ -68,15 +68,19 @@ namespace OrleansDashboard
                 UpdateZone = x.UpdateZone
             }).ToArray();
 
-            var aggregatedTotals = this.history
-                .GroupBy(x => new GrainSiloKey(x.Grain, x.SiloAddress))
-                .ToDictionary(g => g.Key, g => new AggregatedGrainTotals
-                {
-                    TotalAwaitTime = g.Sum(x => x.ElapsedTime),
-                    TotalCalls = g.Sum(x => x.Count),
-                    TotalExceptions = g.Sum(x => x.ExceptionCount)
-                });
+          
+            //retur prev buffer
+            if (this.Counters.SimpleGrainStats != null)
+            {
+                var copy = this.Counters.SimpleGrainStats;
+                this.Counters.SimpleGrainStats = null;
+                grainStatsCounterPool.Return(copy);
+            }
 
+
+            var historyByGrain = this.history
+                .ToLookup(x => new GrainSiloKey(x.Grain, x.SiloAddress));
+            var dict = new Dictionary<GrainSiloKey, AggregatedGrainTotals>();
 
             var stats = grainStatsCounterPool.Rent(simpleGrainStatistics.Length);
             for (int i = 0; i < simpleGrainStatistics.Length; i++)
@@ -84,26 +88,34 @@ namespace OrleansDashboard
                 var x = simpleGrainStatistics[i];
                 var grainName = TypeFormatter.Parse(x.GrainType);
                 var siloAddress = x.SiloAddress.ToParsableString();
+                var key = new GrainSiloKey(grainName, siloAddress);
                 AggregatedGrainTotals totals;
-                if (!aggregatedTotals.TryGetValue(new GrainSiloKey(grainName, siloAddress), out totals))
+
+                // ensure entry in totals dictionary
+                if (!dict.TryGetValue(key, out totals))
                 {
-                    totals = new AggregatedGrainTotals();
+                    totals = new AggregatedGrainTotals()
+                    {
+                        TotalSeconds = elapsedTime
+                    };
+                    dict.Add(key, totals);
                 }
-                stats[i]= new SimpleGrainStatisticCounter
+
+                // aggregate totals
+                // only loop entries once
+                foreach (var entry in historyByGrain[key])
+                {
+                    totals.TotalAwaitTime += entry.ElapsedTime;
+                    totals.TotalCalls += entry.Count;
+                    totals.TotalExceptions += entry.ExceptionCount;
+                }
+
+                stats[i] = new SimpleGrainStatisticCounter(totals)
                 {
                     ActivationCount = x.ActivationCount,
                     GrainType = grainName,
-                    SiloAddress = x.SiloAddress.ToParsableString(),
-                    TotalAwaitTime = totals.TotalAwaitTime,
-                    TotalCalls = totals.TotalCalls,
-                    TotalExceptions = totals.TotalExceptions,
-                    TotalSeconds = elapsedTime
+                    SiloAddress = x.SiloAddress.ToParsableString()
                 };
-            }
-
-            if (this.Counters.SimpleGrainStats != null)
-            {
-                grainStatsCounterPool.Return(this.Counters.SimpleGrainStats);
             }
 
             this.Counters.SimpleGrainStats = stats;
@@ -168,7 +180,7 @@ namespace OrleansDashboard
 
                     results[key] = value;
                 }
-             
+
                 value.Count += historicValue.Count;
                 value.ElapsedTime += historicValue.ElapsedTime;
                 value.ExceptionCount += historicValue.ExceptionCount;

@@ -6,14 +6,25 @@ namespace OrleansDashboard
 {
     public class SimpleGrainStatisticCounter
     {
+        private readonly AggregatedGrainTotals _totals;
+
+        public SimpleGrainStatisticCounter(AggregatedGrainTotals totals)
+        {
+            _totals = totals;
+        }
+
+
         public int ActivationCount { get; set; }
         public string GrainType { get; set; }
         public string SiloAddress { get; set; }
-        public double TotalAwaitTime { get; set; }
-        public long TotalCalls { get; set; }
+
+        public double TotalAwaitTime => _totals.TotalAwaitTime;
+
+
+        public long TotalCalls => _totals.TotalCalls;
         public double CallsPerSecond { get; set; }
-        public object TotalSeconds { get; set; }
-        public long TotalExceptions { get; set; }
+        public object TotalSeconds => _totals.TotalSeconds;
+        public long TotalExceptions => _totals.TotalExceptions;
     }
 
     [Serializable]
@@ -108,11 +119,12 @@ namespace OrleansDashboard
         }
     }
 
-    internal class AggregatedGrainTotals
+    public class AggregatedGrainTotals
     {
         public double TotalAwaitTime { get; set; }
         public long TotalCalls { get; set; }
         public long TotalExceptions { get; set; }
+        public double TotalSeconds { get; set; }
     }
 
     public class ReminderInfo

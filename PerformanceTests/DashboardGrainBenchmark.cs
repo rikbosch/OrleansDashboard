@@ -9,12 +9,13 @@ using System.Threading.Tasks;
 
 namespace PerformanceTests
 {
+    [MemoryDiagnoser]
     public class DashboardGrainBenchmark
     {
-        private List<MembershipEntry> _silos;
+        private MembershipEntry[] _silos;
         private List<string> _grainTypes;
         private DashboardGrain _dashboardGrain;
-        private List<SimpleGrainStatistic> _simpleGrainStatistics;
+        private SimpleGrainStatistic[] _simpleGrainStatistics;
         private int _totalActivationCount;
 
         [Params(3)]
@@ -40,33 +41,29 @@ namespace PerformanceTests
 
         private async Task SetupAsync()
         {
-            _silos = new List<MembershipEntry>();
-            for (var i = 0; i < SiloCount; ++i)
-            {
-                _silos.Add(new MembershipEntry
+
+            _silos = Enumerable.Range(0, SiloCount)
+                .Select(i => new MembershipEntry
                 {
                     SiloAddress = SiloAddress.NewLocalAddress(i)
-                });
-            }
+                }).ToArray();
+
             _grainTypes = new List<string>();
             for (int i = 0; i < GrainTypeCount; i++)
             {
                 _grainTypes.Add("Grain" + Guid.NewGuid());
             }
 
-            _simpleGrainStatistics = new List<SimpleGrainStatistic>();
-            foreach (var silo in _silos)
-            {
-                foreach (var grainType in _grainTypes)
+            _simpleGrainStatistics =
+            (
+                from silo in _silos
+                from grainType in _grainTypes
+                select new SimpleGrainStatistic
                 {
-                    _simpleGrainStatistics.Add(new SimpleGrainStatistic
-                    {
-                        ActivationCount = GrainActivationPerSiloCount,
-                        GrainType = grainType,
-                        SiloAddress = silo.SiloAddress
-                    });
-                }
-            }
+                    ActivationCount = GrainActivationPerSiloCount,
+                    GrainType = grainType,
+                    SiloAddress = silo.SiloAddress
+                }).ToArray();
 
             _totalActivationCount = _simpleGrainStatistics.Sum(s => s.ActivationCount);
 

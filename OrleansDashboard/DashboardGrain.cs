@@ -3,6 +3,7 @@ using Orleans.Concurrency;
 using Orleans.Placement;
 using Orleans.Runtime;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -17,6 +18,9 @@ namespace OrleansDashboard
         private DateTime StartTime { get; set; }
         private List<GrainTraceEntry> history = new List<GrainTraceEntry>();
 
+        private ArrayPool<SimpleGrainStatisticCounter> grainStatsCounterPool =
+            ArrayPool<SimpleGrainStatisticCounter>.Shared;
+
         private async Task Callback(object _)
         {
             var metricsGrain = this.GrainFactory.GetGrain<IManagementGrain>(0);
@@ -29,8 +33,8 @@ namespace OrleansDashboard
             RecalculateCounters(activationCountTask.Result, hostsTask.Result, simpleGrainStatsTask.Result);
         }
 
-        internal void RecalculateCounters(int activationCount, IList<MembershipEntry> hosts,
-            IList<SimpleGrainStatistic> simpleGrainStatistics)
+        internal void RecalculateCounters(int activationCount, MembershipEntry[] hosts,
+            SimpleGrainStatistic[] simpleGrainStatistics)
         {
             this.Counters.TotalActivationCount = activationCount;
 
@@ -73,8 +77,11 @@ namespace OrleansDashboard
                     TotalExceptions = g.Sum(x => x.ExceptionCount)
                 });
 
-            this.Counters.SimpleGrainStats = simpleGrainStatistics.Select(x =>
+
+            var stats = grainStatsCounterPool.Rent(simpleGrainStatistics.Length);
+            for (int i = 0; i < simpleGrainStatistics.Length; i++)
             {
+                var x = simpleGrainStatistics[i];
                 var grainName = TypeFormatter.Parse(x.GrainType);
                 var siloAddress = x.SiloAddress.ToParsableString();
                 AggregatedGrainTotals totals;
@@ -82,7 +89,7 @@ namespace OrleansDashboard
                 {
                     totals = new AggregatedGrainTotals();
                 }
-                return new SimpleGrainStatisticCounter
+                stats[i]= new SimpleGrainStatisticCounter
                 {
                     ActivationCount = x.ActivationCount,
                     GrainType = grainName,
@@ -92,7 +99,14 @@ namespace OrleansDashboard
                     TotalExceptions = totals.TotalExceptions,
                     TotalSeconds = elapsedTime
                 };
-            }).ToArray();
+            }
+
+            if (this.Counters.SimpleGrainStats != null)
+            {
+                grainStatsCounterPool.Return(this.Counters.SimpleGrainStats);
+            }
+
+            this.Counters.SimpleGrainStats = stats;
         }
 
         public override Task OnActivateAsync()
@@ -144,11 +158,17 @@ namespace OrleansDashboard
             foreach (var historicValue in this.history)
             {
                 var key = historicValue.Period.ToPeriodString();
-                if (!results.ContainsKey(key)) results.Add(key, new GrainTraceEntry
+                GrainTraceEntry value;
+                if (!results.TryGetValue(key, out value))
                 {
-                    Period = historicValue.Period,
-                });
-                var value = results[key];
+                    value = new GrainTraceEntry
+                    {
+                        Period = historicValue.Period,
+                    };
+
+                    results[key] = value;
+                }
+             
                 value.Count += historicValue.Count;
                 value.ElapsedTime += historicValue.ElapsedTime;
                 value.ExceptionCount += historicValue.ExceptionCount;
@@ -194,7 +214,12 @@ namespace OrleansDashboard
 
             // fill in any previously captured methods which aren't in this reporting window
             var allGrainTrace = new List<GrainTraceEntry>(grainTrace);
-            var values = this.history.Where(x => x.SiloAddress == siloIdentity).GroupBy(x => x.GrainAndMethod).Select(x => x.First());
+            var values = this.history
+                .Where(x => x.SiloAddress == siloIdentity)
+                .GroupBy(x => x.GrainAndMethod)
+                .Select(x => x.First());
+
+
             foreach (var value in values)
             {
                 if (!grainTrace.Any(x => x.GrainAndMethod == value.GrainAndMethod))

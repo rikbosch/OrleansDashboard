@@ -66,7 +66,7 @@ namespace OrleansDashboard
         public Queue<int> TotalActivationCountHistory { get; set; }
     }
 
-    internal class GrainSiloKey
+    internal struct GrainSiloKey : IEquatable<GrainSiloKey>
     {
         public GrainSiloKey(string grainName, string siloAddress)
         {
@@ -78,36 +78,33 @@ namespace OrleansDashboard
 
         public string SiloAddress { get; }
 
-        protected bool Equals(GrainSiloKey other)
+        public bool Equals(GrainSiloKey other)
         {
-            return string.Equals(GrainName, other.GrainName)
-                && string.Equals(SiloAddress, other.SiloAddress);
+            return string.Equals(GrainName, other.GrainName) && string.Equals(SiloAddress, other.SiloAddress);
         }
 
         public override bool Equals(object obj)
         {
             if (ReferenceEquals(null, obj)) return false;
-            if (ReferenceEquals(this, obj)) return true;
-            if (obj.GetType() != this.GetType()) return false;
-            return Equals((GrainSiloKey)obj);
+            return obj is GrainSiloKey && Equals((GrainSiloKey) obj);
         }
 
         public override int GetHashCode()
         {
             unchecked
             {
-                return (GrainName.GetHashCode() * 397) ^ SiloAddress.GetHashCode();
+                return ((GrainName != null ? GrainName.GetHashCode() : 0) * 397) ^ (SiloAddress != null ? SiloAddress.GetHashCode() : 0);
             }
         }
 
         public static bool operator ==(GrainSiloKey left, GrainSiloKey right)
         {
-            return Equals(left, right);
+            return left.Equals(right);
         }
 
         public static bool operator !=(GrainSiloKey left, GrainSiloKey right)
         {
-            return !Equals(left, right);
+            return !left.Equals(right);
         }
     }
 
